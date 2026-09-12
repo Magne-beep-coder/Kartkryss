@@ -1,4 +1,4 @@
-SKISSEVERKTØY FOR BRUK I BIL VEDREFLEKSJONSPAUSER
+SKISSEVERKTØY FOR SKOLEBIL TYNGRE KLASSER VED REFLEKSJONSPAUSER
 Skriv inn adresse og trykk søk eller bruk lokasjonsknappen for å bruke GPS
 Velg kjøretøy og plasser de på kartet
 Roter eller bøy kjøretøy til ønsket posisjon
