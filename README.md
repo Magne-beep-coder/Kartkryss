@@ -1,4 +1,4 @@
-Skriv inn adresse og trykk søk
+Skriv inn adresse og trykk søk eller bruk lokasjonsknappen for å bruke GPS
 Velg kjøretøy og plasser de på kartet
 Roter eller bøy kjøretøy til ønsket posisjon
 Siktlinjer settes ved å dra de fra kjøretøy og i ønsket retning
