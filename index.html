@@ -139,8 +139,8 @@
     personbil:{navn:'Personbil',   br:1.80, bil:5.00},
     lastebil: {navn:'Lastebil',    br:2.60, bil:10.00},
     buss:     {navn:'Buss',        br:2.50, bil:13.00},
-    semi:     {navn:'Semitrailer', br:2.60, bil:5.70, drag:0,    henger:11.30},
-    vogntog:  {navn:'Vogntog',     br:2.60, bil:8.80, drag:1.30, henger:8.90}
+    semi:     {navn:'Semitrailer', br:2.60, bil:5.70, krok:1.00, drag:0, henger:13.30, fram:1.00},
+    vogntog:  {navn:'Vogntog',     br:2.60, bil:10.00, krok:0.50, drag:2.50, henger:7.00}
   };
   // rekkefølgen kjøretøy settes inn i gir hver sin farge
   var PALETT = ['#1E5AA8', '#C1272D', '#2E7D32', '#D97A0B', '#6A3D9A', '#0F7C74'];
@@ -150,7 +150,7 @@
   }
   function totalLengde(b){
     var s = BILER[b.type];
-    return s.bil + (s.drag || 0) + (s.henger || 0);
+    return s.bil + (s.drag || 0) - (s.krok || 0) + (s.henger || 0) - (s.fram || 0);
   }
   function pxPerMeter(){
     var y = kart.getSize().y / 2;
@@ -207,22 +207,33 @@
   function bilRamme(b){
     var spec = BILER[b.type], s = pxPerMeter();
     var c = kart.latLngToContainerPoint(b.ll);
-    var aF = b.hdg * Math.PI / 180, aT = (b.hdg + (b.led || 0)) * Math.PI / 180;
-    var dF = {x:Math.cos(aF), y:Math.sin(aF)}, dT = {x:Math.cos(aT), y:Math.sin(aT)};
+    var aF = b.hdg * Math.PI / 180;
+    var aD = (b.hdg + (b.led || 0)) * Math.PI / 180;                       // drag / semi
+    var aT = (b.hdg + (b.led || 0) + (b.led2 || 0)) * Math.PI / 180;       // selve hengeren
+    var dF = {x:Math.cos(aF), y:Math.sin(aF)};
+    var dD = {x:Math.cos(aD), y:Math.sin(aD)};
+    var dT = {x:Math.cos(aT), y:Math.sin(aT)};
     var bilPx = spec.bil * s, brPx = spec.br * s;
-    var P = {x:c.x - dF.x * bilPx / 2, y:c.y - dF.y * bilPx / 2};      // koblingspunkt
+    // kroken sitter et stykke foran bakenden, så overhenget svinger ut over draget
+    var krokPx = (spec.krok || 0) * s;
+    var tilKrok = bilPx / 2 - krokPx;
+    var P = {x:c.x - dF.x * tilKrok, y:c.y - dF.y * tilKrok};
     var start = P, hengerPx = (spec.henger || 0) * s, dragPx = (spec.drag || 0) * s;
-    if(dragPx) start = {x:P.x - dT.x * dragPx, y:P.y - dT.y * dragPx};
-    var bak = {x:start.x - dT.x * hengerPx, y:start.y - dT.y * hengerPx};
-    return {s:s, spec:spec, c:c, aF:aF, aT:aT, dF:dF, dT:dT,
-            bilPx:bilPx, brPx:brPx, P:P, start:start, hengerPx:hengerPx, dragPx:dragPx, bak:bak};
+    if(dragPx) start = {x:P.x - dD.x * dragPx, y:P.y - dD.y * dragPx};
+    // hengeren kan stikke fram foran dreiepunktet (svingskiva på en semi)
+    var framPx = (spec.fram || 0) * s;
+    var front = {x:start.x + dT.x * framPx, y:start.y + dT.y * framPx};
+    var bak = {x:front.x - dT.x * hengerPx, y:front.y - dT.y * hengerPx};
+    return {s:s, spec:spec, c:c, aF:aF, aD:aD, aT:aT, dF:dF, dD:dD, dT:dT,
+            bilPx:bilPx, brPx:brPx, P:P, start:start, hengerPx:hengerPx, dragPx:dragPx,
+            front:front, bak:bak};
   }
-  function kasse(cx, cy, ang, len, bredde, valgt, farge){
+  function kasse(cx, cy, ang, len, bredde, valgt, farge, dus){
     ctx.save();
     ctx.translate(cx, cy); ctx.rotate(ang);
-    ctx.fillStyle = gjennomsiktig(farge, 0.55);
-    ctx.strokeStyle = farge;
-    ctx.lineWidth = valgt ? 4 : 2.5;
+    ctx.fillStyle = gjennomsiktig(farge, dus ? 0.22 : 0.55);
+    ctx.strokeStyle = dus ? gjennomsiktig(farge, 0.6) : farge;
+    ctx.lineWidth = valgt ? (dus ? 3 : 4) : (dus ? 2 : 2.5);
     ctx.lineJoin = 'round';
     ctx.beginPath(); ctx.rect(-len / 2, -bredde / 2, len, bredde);
     ctx.fill(); ctx.stroke();
@@ -237,6 +248,10 @@
     ctx.fillText(tegn, pt.x, pt.y + 1);
     ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
   }
+  function akselKnott(f){
+    var avstand = f.brPx / 2 + 24;
+    return {x:f.start.x - f.dD.y * avstand, y:f.start.y + f.dD.x * avstand};
+  }
   function tegnBil(b, valgt){
     var f = bilRamme(b), farge = b.farge || PALETT[0];
     if(f.hengerPx){
@@ -244,9 +259,9 @@
         ctx.strokeStyle = farge; ctx.lineWidth = 3; ctx.setLineDash([]);
         ctx.beginPath(); ctx.moveTo(f.P.x, f.P.y); ctx.lineTo(f.start.x, f.start.y); ctx.stroke();
       }
-      kasse((f.start.x + f.bak.x) / 2, (f.start.y + f.bak.y) / 2, f.aT, f.hengerPx, f.brPx, valgt, farge);
+      kasse((f.front.x + f.bak.x) / 2, (f.front.y + f.bak.y) / 2, f.aT, f.hengerPx, f.brPx, valgt, farge);
     }
-    kasse(f.c.x, f.c.y, f.aF, f.bilPx, f.brPx, valgt, farge);
+    kasse(f.c.x, f.c.y, f.aF, f.bilPx, f.brPx, valgt, farge, f.hengerPx > 0);
     // kjøreretning
     var nese = {x:f.c.x + f.dF.x * f.bilPx / 2, y:f.c.y + f.dF.y * f.bilPx / 2};
     var pil = Math.min(f.brPx * 0.75, f.bilPx * 0.35);
@@ -261,9 +276,11 @@
     ctx.restore();
     if(valgt){
       knott({x:nese.x + f.dF.x * 26, y:nese.y + f.dF.y * 26}, '\u21BB');
+      if(f.dragPx) knott(akselKnott(f), '\u2295');
       if(f.hengerPx) knott({x:f.bak.x - f.dT.x * 24, y:f.bak.y - f.dT.y * 24}, '\u2325');
       var txt = totalLengde(b).toFixed(2).replace('.', ',') + ' m';
       if(b.led) txt += '   ledd ' + Math.round(Math.abs(b.led)) + '\u00B0';
+      if(b.led2) txt += ' / ' + Math.round(Math.abs(b.led2)) + '\u00B0';
       ctx.font = '600 13px -apple-system,sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       var tw = ctx.measureText(txt).width + 14;
@@ -291,10 +308,14 @@
           var hal = {x:f.bak.x - f.dT.x * 24, y:f.bak.y - f.dT.y * 24};
           if(Math.hypot(p.x - hal.x, p.y - hal.y) < 30) return {i:i, type:'ledd'};
         }
+        if(f.dragPx){
+          var ak = akselKnott(f);
+          if(Math.hypot(p.x - ak.x, p.y - ak.y) < 28) return {i:i, type:'aksel'};
+        }
       }
       var traff = iKasse(p, f.c.x, f.c.y, f.aF, f.bilPx, f.brPx);
       if(!traff && f.hengerPx)
-        traff = iKasse(p, (f.start.x + f.bak.x) / 2, (f.start.y + f.bak.y) / 2, f.aT, f.hengerPx, f.brPx);
+        traff = iKasse(p, (f.front.x + f.bak.x) / 2, (f.front.y + f.bak.y) / 2, f.aT, f.hengerPx, f.brPx);
       if(traff) return {i:i, type:'flytt', dx:p.x - f.c.x, dy:p.y - f.c.y};
     }
     return null;
@@ -347,14 +368,45 @@
       if(!bilDrag) return;
       var b = biler[bilDrag.i], p = skjermPkt(e), f = bilRamme(b);
       if(bilDrag.type === 'snu'){
-        b.hdg = Math.round(Math.atan2(p.y - f.c.y, p.x - f.c.x) * 180 / Math.PI / 2.5) * 2.5;
+        if(f.hengerPx){
+          // trekkbilen dreies om koblingspunktet; hengeren blir stående
+          var absT = b.hdg + (b.led || 0), P = f.P;
+          var nyH = Math.round(Math.atan2(p.y - P.y, p.x - P.x) * 180 / Math.PI / 2.5) * 2.5;
+          var nyL = absT - nyH;
+          while(nyL > 180) nyL -= 360;
+          while(nyL < -180) nyL += 360;
+          nyL = Math.max(-80, Math.min(80, nyL));
+          b.hdg = nyH;
+          b.led = Math.abs(nyL) < 3 ? 0 : nyL;
+          var aH = nyH * Math.PI / 180;
+          var tilK = f.bilPx / 2 - (f.spec.krok || 0) * f.s;
+          b.ll = kart.containerPointToLatLng([P.x + Math.cos(aH) * tilK,
+                                              P.y + Math.sin(aH) * tilK]);
+        } else {
+          b.hdg = Math.round(Math.atan2(p.y - f.c.y, p.x - f.c.x) * 180 / Math.PI / 2.5) * 2.5;
+        }
+      } else if(bilDrag.type === 'aksel'){
+        // draget svinger om kroken; hengeren beholder sin retning
+        var absT0 = b.hdg + (b.led || 0) + (b.led2 || 0);
+        var vD = Math.atan2(p.y - f.P.y, p.x - f.P.x) * 180 / Math.PI + 180;
+        var nyD = vD - b.hdg;
+        while(nyD > 180) nyD -= 360;
+        while(nyD < -180) nyD += 360;
+        nyD = Math.max(-80, Math.min(80, Math.round(nyD / 2.5) * 2.5));
+        b.led = Math.abs(nyD) < 3 ? 0 : nyD;
+        var nyT = absT0 - b.hdg - b.led;
+        while(nyT > 180) nyT -= 360;
+        while(nyT < -180) nyT += 360;
+        b.led2 = Math.max(-80, Math.min(80, nyT));
       } else if(bilDrag.type === 'ledd'){
-        var v = Math.atan2(p.y - f.P.y, p.x - f.P.x) * 180 / Math.PI + 180;
-        var ny = v - b.hdg;
+        var dreiepunkt = f.dragPx ? f.start : f.P;
+        var v = Math.atan2(p.y - dreiepunkt.y, p.x - dreiepunkt.x) * 180 / Math.PI + 180;
+        var ny = v - b.hdg - (f.dragPx ? (b.led || 0) : 0);
         while(ny > 180) ny -= 360;
         while(ny < -180) ny += 360;
         ny = Math.max(-80, Math.min(80, Math.round(ny / 2.5) * 2.5));
-        b.led = Math.abs(ny) < 3 ? 0 : ny;
+        if(Math.abs(ny) < 3) ny = 0;
+        if(f.dragPx) b.led2 = ny; else b.led = ny;
       } else {
         b.ll = kart.containerPointToLatLng([p.x - bilDrag.dx, p.y - bilDrag.dy]);
       }
@@ -399,7 +451,7 @@
 
   document.getElementById('settinn').addEventListener('click', function(){
     var t = document.getElementById('biltype').value;
-    biler.push({type:t, ll:kart.getCenter(), hdg:0, led:0,
+    biler.push({type:t, ll:kart.getCenter(), hdg:0, led:0, led2:0,
                 farge:PALETT[biler.length % PALETT.length]});
     valgtBil = biler.length - 1;
     if(!bilmodus) settModus('bil'); else tegnOpp();
