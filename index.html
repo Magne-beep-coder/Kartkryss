@@ -1,0 +1,550 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Kartskisse">
+<meta name="theme-color" content="#23272B">
+<title>Kartskisse</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{--ink:#23272B;--ink-2:#31363B;--line:#3C4248;--text:#F5F3EF;--muted:#A8AEB4;--active:#E3B23C}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0;overscroll-behavior:none;background:var(--ink)}
+  body{display:flex;flex-direction:column;
+    font:16px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--text);
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    user-select:none;-webkit-user-select:none}
+  .bar{display:flex;align-items:center;gap:9px;padding:9px 11px;background:var(--ink);flex:0 0 auto}
+  .bar.top{border-bottom:1px solid var(--line)}
+  .bar.strip{border-top:1px solid var(--line);overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .bar.strip::-webkit-scrollbar{display:none}
+  button{font:inherit;color:var(--text);background:var(--ink-2);border:1px solid var(--line);
+    border-radius:11px;padding:12px 15px;min-height:54px;white-space:nowrap;cursor:pointer}
+  button:active{background:#454C53}
+  button:focus-visible{outline:3px solid var(--active);outline-offset:2px}
+  button[aria-pressed="true"]{background:var(--active);border-color:var(--active);color:#23201A;font-weight:600}
+  input[type=search]{flex:1 1 auto;min-width:0;font:inherit;color:var(--text);background:var(--ink-2);
+    border:1px solid var(--line);border-radius:11px;padding:12px 14px;min-height:54px;-webkit-appearance:none}
+  input[type=search]:focus-visible{outline:3px solid var(--active);outline-offset:2px}
+  .ikon{width:54px;padding:0;display:grid;place-items:center;font-size:22px;line-height:1}
+  .pen{width:54px;padding:0;display:grid;place-items:center}
+  .dot{width:26px;height:26px;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.25) inset}
+  .pen[aria-pressed="true"]{background:var(--ink-2);border-color:var(--active)}
+  .pen[aria-pressed="true"] .dot{box-shadow:0 0 0 3px var(--active)}
+  .w{width:54px;padding:0;display:grid;place-items:center}
+  .w span{display:block;width:28px;border-radius:99px;background:var(--text)}
+  .w[aria-pressed="true"] span{background:#23201A}
+  .velg{position:relative;flex:0 0 auto;width:170px}
+  select{appearance:none;-webkit-appearance:none;width:100%;font:inherit;color:var(--text);
+    background:var(--ink-2);border:1px solid var(--line);border-radius:11px;
+    padding:12px 36px 12px 14px;min-height:54px}
+  select option{color:#111;background:#fff}
+  .pil{position:absolute;right:13px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--muted)}
+  .flate{flex:1 1 auto;position:relative;min-height:0}
+  #kart{position:absolute;inset:0}
+  #tegn{position:absolute;inset:0;width:100%;height:100%;z-index:500;pointer-events:none;touch-action:none}
+  #tegn.aktiv{pointer-events:auto}
+  #treff{position:absolute;left:11px;right:11px;top:8px;z-index:700;background:var(--ink);
+    border:1px solid var(--line);border-radius:12px;overflow:hidden;max-height:56%;overflow-y:auto;display:none}
+  #treff div{padding:14px 15px;border-bottom:1px solid var(--line);cursor:pointer}
+  #treff div:last-child{border-bottom:0}
+  #treff div:active{background:var(--ink-2)}
+  #treff .sub{color:var(--muted);font-size:14px}
+  .melding{position:absolute;left:11px;right:11px;bottom:11px;z-index:700;background:var(--ink);
+    border:1px solid var(--line);border-radius:12px;padding:13px 15px;font-size:15px;display:none}
+  .leaflet-control-attribution{font-size:11px}
+</style>
+
+<div class="bar top">
+  <input type="search" id="sok" placeholder="Søk adresse eller stedsnavn" enterkeyhint="search" autocomplete="off">
+  <button id="sokknapp">Søk</button>
+  <button class="ikon" id="posisjon" aria-label="Min posisjon">◎</button>
+</div>
+
+<div class="flate">
+  <div id="kart"></div>
+  <canvas id="tegn"></canvas>
+  <div id="treff"></div>
+  <div class="melding" id="melding"></div>
+</div>
+
+<div class="bar strip">
+  <button id="modus" aria-pressed="false">Tegn</button>
+  <button id="siktmodus" aria-pressed="false">Siktlinje</button>
+  <button id="bilmodus" aria-pressed="false">Kjøretøy</button>
+  <span class="velg" style="width:190px"><select id="biltype" aria-label="Kjøretøytype">
+    <option value="personbil">Personbil</option>
+    <option value="lastebil">Lastebil 10 m</option>
+    <option value="buss">Buss 13 m</option>
+    <option value="semi">Semitrailer 17 m</option>
+    <option value="vogntog">Vogntog 19 m</option>
+  </select><span class="pil">▾</span></span>
+  <button id="settinn">Sett inn</button>
+  <button id="fjernbil">Fjern</button>
+  <button class="pen" id="c0" aria-pressed="true" aria-label="Rød"><span class="dot" style="background:#E02020"></span></button>
+  <button class="pen" id="c1" aria-pressed="false" aria-label="Svart"><span class="dot" style="background:#111111"></span></button>
+  <button class="pen" id="c2" aria-pressed="false" aria-label="Blå"><span class="dot" style="background:#1E5AA8"></span></button>
+  <button class="pen" id="c3" aria-pressed="false" aria-label="Gul"><span class="dot" style="background:#F2C230"></span></button>
+  <button class="w" id="w0" aria-pressed="true" aria-label="Tynn strek"><span style="height:4px"></span></button>
+  <button class="w" id="w1" aria-pressed="false" aria-label="Tykk strek"><span style="height:10px"></span></button>
+  <button id="angre">Angre</button>
+  <button id="tom">Tøm</button>
+  <button id="lagre">Lagre</button>
+  <span class="velg"><select id="lag" aria-label="Karttype">
+    <option value="topo">Topografisk</option>
+    <option value="topograatone">Gråtone</option>
+    <option value="toporaster">Raster</option>
+  </select><span class="pil">▾</span></span>
+</div>
+
+<script>
+(function(){
+  if(typeof L === 'undefined'){
+    var d = document.getElementById('melding');
+    d.style.display = 'block';
+    d.textContent = 'Kartbiblioteket ble ikke lastet. Enten mangler nettforbindelse, ' +
+                    'eller så blokkerer vinduet appen kjører i eksterne skript.';
+    return;
+  }
+  var URL_BASE = 'https://cache.kartverket.no/v1/wmts/1.0.0/';
+  var kart = L.map('kart', {zoomControl:false, attributionControl:true}).setView([69.65, 18.95], 15);
+  L.control.zoom({position:'topright'}).addTo(kart);
+
+  function lagUrl(navn){ return URL_BASE + navn + '/default/webmercator/{z}/{y}/{x}.png'; }
+  var lag = L.tileLayer(lagUrl('topo'), {
+    maxZoom:20, maxNativeZoom:18,
+    attribution:'&copy; <a href="https://www.kartverket.no/">Kartverket</a>'
+  }).addTo(kart);
+
+  var ruteFeil = 0;
+  if(lag.on){
+    lag.on('tileerror', function(){
+      ruteFeil++;
+      if(ruteFeil === 4) si('Får ikke hentet kartruter fra Kartverket. Sjekk nettforbindelsen.', 8000);
+    });
+    lag.on('tileload', function(){ ruteFeil = 0; });
+  }
+
+  document.getElementById('lag').addEventListener('change', function(){
+    lag.setUrl(lagUrl(this.value));
+  });
+
+  /* ---------- tegning, forankret i kartet ---------- */
+  var cv = document.getElementById('tegn'), ctx = cv.getContext('2d');
+  var strokes = [], current = null, tegnemodus = false, bilmodus = false, siktmodus = false;
+  var biler = [], valgtBil = -1, bilDrag = null;
+
+  var BILER = {
+    personbil:{navn:'Personbil',   br:1.80, bil:5.00},
+    lastebil: {navn:'Lastebil',    br:2.60, bil:10.00},
+    buss:     {navn:'Buss',        br:2.50, bil:13.00},
+    semi:     {navn:'Semitrailer', br:2.60, bil:5.70, drag:0,    henger:11.30},
+    vogntog:  {navn:'Vogntog',     br:2.60, bil:8.80, drag:1.30, henger:8.90}
+  };
+  // rekkefølgen kjøretøy settes inn i gir hver sin farge
+  var PALETT = ['#1E5AA8', '#C1272D', '#2E7D32', '#D97A0B', '#6A3D9A', '#0F7C74'];
+  function gjennomsiktig(hex, a){
+    return 'rgba(' + parseInt(hex.substr(1,2),16) + ',' + parseInt(hex.substr(3,2),16) +
+           ',' + parseInt(hex.substr(5,2),16) + ',' + a + ')';
+  }
+  function totalLengde(b){
+    var s = BILER[b.type];
+    return s.bil + (s.drag || 0) + (s.henger || 0);
+  }
+  function pxPerMeter(){
+    var y = kart.getSize().y / 2;
+    var a = kart.containerPointToLatLng([0, y]), b = kart.containerPointToLatLng([100, y]);
+    var m = kart.distance(a, b);
+    return m > 0 ? 100 / m : 1;
+  }
+  var farge = '#E02020', tykkelse = 5, dpr = 1, penSett = false;
+
+  function storrelse(){
+    var r = cv.getBoundingClientRect();
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.round(r.width * dpr);
+    cv.height = Math.round(r.height * dpr);
+    tegnOpp();
+  }
+  function punkt(ll){
+    var p = kart.latLngToContainerPoint(ll);
+    return {x:p.x, y:p.y};
+  }
+  function tegnOpp(){
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    strokes.forEach(function(s){
+      if(!s.pts.length) return;
+      ctx.strokeStyle = s.c; ctx.fillStyle = s.c; ctx.lineWidth = s.w;
+      if(s.rett){
+        if(s.pts.length < 2) return;
+        var a0 = punkt(s.pts[0]), b0 = punkt(s.pts[s.pts.length - 1]);
+        ctx.setLineDash([s.w * 3.2, s.w * 2.4]);
+        ctx.beginPath(); ctx.moveTo(a0.x, a0.y); ctx.lineTo(b0.x, b0.y); ctx.stroke();
+        ctx.setLineDash([]);
+        return;
+      }
+      ctx.setLineDash([]);
+      if(s.pts.length === 1){
+        var q = punkt(s.pts[0]);
+        ctx.beginPath(); ctx.arc(q.x, q.y, s.w / 2, 0, Math.PI * 2); ctx.fill();
+        return;
+      }
+      ctx.beginPath();
+      var a = punkt(s.pts[0]);
+      ctx.moveTo(a.x, a.y);
+      for(var i = 1; i < s.pts.length; i++){
+        var b = punkt(s.pts[i]);
+        ctx.lineTo(b.x, b.y);
+      }
+      ctx.stroke();
+    });
+    biler.forEach(function(b, i){ tegnBil(b, i === valgtBil); });
+  }
+
+  function bilRamme(b){
+    var spec = BILER[b.type], s = pxPerMeter();
+    var c = kart.latLngToContainerPoint(b.ll);
+    var aF = b.hdg * Math.PI / 180, aT = (b.hdg + (b.led || 0)) * Math.PI / 180;
+    var dF = {x:Math.cos(aF), y:Math.sin(aF)}, dT = {x:Math.cos(aT), y:Math.sin(aT)};
+    var bilPx = spec.bil * s, brPx = spec.br * s;
+    var P = {x:c.x - dF.x * bilPx / 2, y:c.y - dF.y * bilPx / 2};      // koblingspunkt
+    var start = P, hengerPx = (spec.henger || 0) * s, dragPx = (spec.drag || 0) * s;
+    if(dragPx) start = {x:P.x - dT.x * dragPx, y:P.y - dT.y * dragPx};
+    var bak = {x:start.x - dT.x * hengerPx, y:start.y - dT.y * hengerPx};
+    return {s:s, spec:spec, c:c, aF:aF, aT:aT, dF:dF, dT:dT,
+            bilPx:bilPx, brPx:brPx, P:P, start:start, hengerPx:hengerPx, dragPx:dragPx, bak:bak};
+  }
+  function kasse(cx, cy, ang, len, bredde, valgt, farge){
+    ctx.save();
+    ctx.translate(cx, cy); ctx.rotate(ang);
+    ctx.fillStyle = gjennomsiktig(farge, 0.55);
+    ctx.strokeStyle = farge;
+    ctx.lineWidth = valgt ? 4 : 2.5;
+    ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.rect(-len / 2, -bredde / 2, len, bredde);
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+  function knott(pt, tegn){
+    ctx.beginPath(); ctx.arc(pt.x, pt.y, 17, 0, Math.PI * 2);
+    ctx.fillStyle = '#E3B23C'; ctx.fill();
+    ctx.lineWidth = 4; ctx.strokeStyle = '#23272B'; ctx.stroke();
+    ctx.fillStyle = '#23272B'; ctx.font = '600 14px -apple-system,sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(tegn, pt.x, pt.y + 1);
+    ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+  }
+  function tegnBil(b, valgt){
+    var f = bilRamme(b), farge = b.farge || PALETT[0];
+    if(f.hengerPx){
+      if(f.dragPx){
+        ctx.strokeStyle = farge; ctx.lineWidth = 3; ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(f.P.x, f.P.y); ctx.lineTo(f.start.x, f.start.y); ctx.stroke();
+      }
+      kasse((f.start.x + f.bak.x) / 2, (f.start.y + f.bak.y) / 2, f.aT, f.hengerPx, f.brPx, valgt, farge);
+    }
+    kasse(f.c.x, f.c.y, f.aF, f.bilPx, f.brPx, valgt, farge);
+    // kjøreretning
+    var nese = {x:f.c.x + f.dF.x * f.bilPx / 2, y:f.c.y + f.dF.y * f.bilPx / 2};
+    var pil = Math.min(f.brPx * 0.75, f.bilPx * 0.35);
+    ctx.save();
+    ctx.translate(nese.x, nese.y); ctx.rotate(f.aF);
+    ctx.strokeStyle = farge; ctx.lineWidth = Math.max(2, f.brPx * 0.12);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-pil * 2.1, 0); ctx.lineTo(-pil * 0.35, 0);
+    ctx.moveTo(-pil * 1.1, -pil * 0.55); ctx.lineTo(-pil * 0.35, 0); ctx.lineTo(-pil * 1.1, pil * 0.55);
+    ctx.stroke();
+    ctx.restore();
+    if(valgt){
+      knott({x:nese.x + f.dF.x * 26, y:nese.y + f.dF.y * 26}, '\u21BB');
+      if(f.hengerPx) knott({x:f.bak.x - f.dT.x * 24, y:f.bak.y - f.dT.y * 24}, '\u2325');
+      var txt = totalLengde(b).toFixed(2).replace('.', ',') + ' m';
+      if(b.led) txt += '   ledd ' + Math.round(Math.abs(b.led)) + '\u00B0';
+      ctx.font = '600 13px -apple-system,sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      var tw = ctx.measureText(txt).width + 14;
+      ctx.fillStyle = 'rgba(255,255,255,0.90)';
+      ctx.fillRect(f.c.x - tw / 2, f.c.y - f.brPx / 2 - 30, tw, 21);
+      ctx.strokeStyle = farge; ctx.lineWidth = 2;
+      ctx.strokeRect(f.c.x - tw / 2, f.c.y - f.brPx / 2 - 30, tw, 21);
+      ctx.fillStyle = '#23272B';
+      ctx.fillText(txt, f.c.x, f.c.y - f.brPx / 2 - 19);
+      ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+    }
+  }
+  function iKasse(p, cx, cy, ang, len, bredde){
+    var dx = p.x - cx, dy = p.y - cy, a = -ang;
+    var lx = dx * Math.cos(a) - dy * Math.sin(a), ly = dx * Math.sin(a) + dy * Math.cos(a);
+    return Math.abs(lx) < len / 2 + 6 && Math.abs(ly) < Math.max(bredde / 2, 11) + 6;
+  }
+  function bilTreff(p){
+    for(var i = biler.length - 1; i >= 0; i--){
+      var b = biler[i], f = bilRamme(b);
+      if(i === valgtBil){
+        var nese = {x:f.c.x + f.dF.x * (f.bilPx / 2 + 26), y:f.c.y + f.dF.y * (f.bilPx / 2 + 26)};
+        if(Math.hypot(p.x - nese.x, p.y - nese.y) < 30) return {i:i, type:'snu'};
+        if(f.hengerPx){
+          var hal = {x:f.bak.x - f.dT.x * 24, y:f.bak.y - f.dT.y * 24};
+          if(Math.hypot(p.x - hal.x, p.y - hal.y) < 30) return {i:i, type:'ledd'};
+        }
+      }
+      var traff = iKasse(p, f.c.x, f.c.y, f.aF, f.bilPx, f.brPx);
+      if(!traff && f.hengerPx)
+        traff = iKasse(p, (f.start.x + f.bak.x) / 2, (f.start.y + f.bak.y) / 2, f.aT, f.hengerPx, f.brPx);
+      if(traff) return {i:i, type:'flytt', dx:p.x - f.c.x, dy:p.y - f.c.y};
+    }
+    return null;
+  }
+
+  document.querySelector('.flate').addEventListener('pointerdown', function(e){
+    var t = document.getElementById('treff');
+    if(t.style.display === 'block' && !t.contains(e.target)) t.style.display = 'none';
+  }, true);
+
+  kart.on('move zoom moveend zoomend viewreset resize', tegnOpp);
+  window.addEventListener('resize', storrelse);
+  window.addEventListener('orientationchange', function(){ setTimeout(storrelse, 300); });
+
+  function tilLatLng(e){
+    var r = cv.getBoundingClientRect();
+    return kart.containerPointToLatLng([e.clientX - r.left, e.clientY - r.top]);
+  }
+  function godta(e){
+    if(e.pointerType === 'pen'){ penSett = true; return true; }
+    return !penSett;
+  }
+  function skjermPkt(e){
+    var r = cv.getBoundingClientRect();
+    return {x:e.clientX - r.left, y:e.clientY - r.top};
+  }
+  cv.addEventListener('pointerdown', function(e){
+    if(!godta(e)) return;
+    cv.setPointerCapture(e.pointerId);
+    if(bilmodus){
+      var t = bilTreff(skjermPkt(e));
+      valgtBil = t ? t.i : -1;
+      bilDrag = t;
+      tegnOpp();
+      return;
+    }
+    if(siktmodus){
+      var ll = tilLatLng(e);
+      current = {c:farge, w:tykkelse, rett:true, pts:[ll, ll]};
+      strokes.push(current); tegnOpp();
+      return;
+    }
+    if(!tegnemodus) return;
+    current = {c:farge, w:tykkelse, pts:[tilLatLng(e)]};
+    strokes.push(current); tegnOpp();
+  });
+  cv.addEventListener('pointermove', function(e){
+    if(!godta(e)) return;
+    if(bilmodus){
+      if(!bilDrag) return;
+      var b = biler[bilDrag.i], p = skjermPkt(e), f = bilRamme(b);
+      if(bilDrag.type === 'snu'){
+        b.hdg = Math.round(Math.atan2(p.y - f.c.y, p.x - f.c.x) * 180 / Math.PI / 2.5) * 2.5;
+      } else if(bilDrag.type === 'ledd'){
+        var v = Math.atan2(p.y - f.P.y, p.x - f.P.x) * 180 / Math.PI + 180;
+        var ny = v - b.hdg;
+        while(ny > 180) ny -= 360;
+        while(ny < -180) ny += 360;
+        ny = Math.max(-80, Math.min(80, Math.round(ny / 2.5) * 2.5));
+        b.led = Math.abs(ny) < 3 ? 0 : ny;
+      } else {
+        b.ll = kart.containerPointToLatLng([p.x - bilDrag.dx, p.y - bilDrag.dy]);
+      }
+      tegnOpp();
+      return;
+    }
+    if(!current) return;
+    if(current.rett) current.pts[1] = tilLatLng(e);
+    else current.pts.push(tilLatLng(e));
+    tegnOpp();
+  });
+  function slutt(e){
+    current = null; bilDrag = null;
+    if(e && e.pointerId !== undefined && cv.hasPointerCapture && cv.hasPointerCapture(e.pointerId))
+      cv.releasePointerCapture(e.pointerId);
+  }
+  cv.addEventListener('pointerup', slutt);
+  cv.addEventListener('pointercancel', slutt);
+
+  /* ---------- knapper ---------- */
+  var modus = document.getElementById('modus'), bilknapp = document.getElementById('bilmodus');
+  var siktknapp = document.getElementById('siktmodus');
+  function settModus(ny){
+    tegnemodus = (ny === 'tegn');
+    siktmodus = (ny === 'sikt');
+    bilmodus = (ny === 'bil');
+    var laast = tegnemodus || bilmodus || siktmodus;
+    modus.setAttribute('aria-pressed', tegnemodus);
+    modus.textContent = tegnemodus ? 'Flytt kart' : 'Tegn';
+    siktknapp.setAttribute('aria-pressed', siktmodus);
+    bilknapp.setAttribute('aria-pressed', bilmodus);
+    cv.classList.toggle('aktiv', laast);
+    ['dragging','touchZoom','doubleClickZoom','scrollWheelZoom','boxZoom','keyboard'].forEach(function(h){
+      if(kart[h]) laast ? kart[h].disable() : kart[h].enable();
+    });
+    if(!bilmodus){ valgtBil = -1; }
+    tegnOpp();
+  }
+  modus.addEventListener('click', function(){ settModus(tegnemodus ? 'kart' : 'tegn'); });
+  siktknapp.addEventListener('click', function(){ settModus(siktmodus ? 'kart' : 'sikt'); });
+  bilknapp.addEventListener('click', function(){ settModus(bilmodus ? 'kart' : 'bil'); });
+
+  document.getElementById('settinn').addEventListener('click', function(){
+    var t = document.getElementById('biltype').value;
+    biler.push({type:t, ll:kart.getCenter(), hdg:0, led:0,
+                farge:PALETT[biler.length % PALETT.length]});
+    valgtBil = biler.length - 1;
+    if(!bilmodus) settModus('bil'); else tegnOpp();
+    si('Dra kjøretøyet på plass. Knappen foran snur det, knappen bak bøyer leddet.', 6000);
+  });
+  document.getElementById('fjernbil').addEventListener('click', function(){
+    if(valgtBil < 0){ si('Trykk på et kjøretøy først.'); return; }
+    biler.splice(valgtBil, 1); valgtBil = -1; tegnOpp();
+  });
+
+  var penner = [['c0','#E02020'],['c1','#111111'],['c2','#1E5AA8'],['c3','#F2C230']];
+  penner.forEach(function(par){
+    document.getElementById(par[0]).addEventListener('click', function(){
+      farge = par[1];
+      penner.forEach(function(q){ document.getElementById(q[0]).setAttribute('aria-pressed', q[0] === par[0]); });
+    });
+  });
+  var bredder = [['w0',5],['w1',11]];
+  bredder.forEach(function(par){
+    document.getElementById(par[0]).addEventListener('click', function(){
+      tykkelse = par[1];
+      bredder.forEach(function(q){ document.getElementById(q[0]).setAttribute('aria-pressed', q[0] === par[0]); });
+    });
+  });
+  document.getElementById('angre').addEventListener('click', function(){ strokes.pop(); tegnOpp(); });
+  document.getElementById('tom').addEventListener('click', function(){ strokes = []; biler = []; valgtBil = -1; tegnOpp(); });
+
+  var melding = document.getElementById('melding'), meldingTid = null;
+  function si(tekst, ms){
+    melding.textContent = tekst;
+    melding.style.display = 'block';
+    clearTimeout(meldingTid);
+    meldingTid = setTimeout(function(){ melding.style.display = 'none'; }, ms || 4000);
+  }
+
+  /* ---------- lagre: kartruter + tegning ---------- */
+  document.getElementById('lagre').addEventListener('click', function(){
+    var flate = document.getElementById('kart');
+    var r = flate.getBoundingClientRect();
+    var ut = document.createElement('canvas');
+    ut.width = Math.round(r.width * dpr); ut.height = Math.round(r.height * dpr);
+    var o = ut.getContext('2d');
+    o.setTransform(dpr, 0, 0, dpr, 0, 0);
+    o.fillStyle = '#FFFFFF'; o.fillRect(0, 0, r.width, r.height);
+    var ruter = flate.querySelectorAll('img.leaflet-tile-loaded');
+    ruter.forEach(function(im){
+      var t = im.getBoundingClientRect();
+      try { o.drawImage(im, t.left - r.left, t.top - r.top, t.width, t.height); } catch(e){}
+    });
+    o.drawImage(cv, 0, 0, r.width, r.height);
+    var url;
+    try { url = ut.toDataURL('image/png'); }
+    catch(e){
+      si('Nettleseren tillater ikke å lagre kartrutene. Ta skjermbilde i stedet: trykk volum opp og av/på-knappen samtidig.', 9000);
+      return;
+    }
+    var a = document.createElement('a');
+    a.href = url; a.download = 'kartskisse.png';
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+
+  /* ---------- søk ---------- */
+  var treff = document.getElementById('treff');
+  function visTreff(liste){
+    treff.innerHTML = '';
+    if(!liste.length){ treff.style.display = 'none'; si('Ingen treff.'); return; }
+    liste.slice(0, 12).forEach(function(t){
+      var d = document.createElement('div');
+      d.innerHTML = '<div>' + t.navn + '</div><div class="sub">' + t.under + '</div>';
+      d.addEventListener('click', function(){
+        treff.style.display = 'none';
+        settModus('kart');
+        kart.setView([t.lat, t.lon], 18);
+      });
+      treff.appendChild(d);
+    });
+    treff.style.display = 'block';
+  }
+  function tall(v){ return typeof v === 'number' ? v : parseFloat(v); }
+
+  function sok(){
+    var q = document.getElementById('sok').value.trim();
+    if(!q) return;
+    settModus('kart');
+    treff.style.display = 'none';
+    si('Søker …', 2500);
+    var liste = [], sokFeil = 0;
+    var a = fetch('https://ws.geonorge.no/adresser/v1/sok?sok=' + encodeURIComponent(q) + '&treffPerSide=8')
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        (d.adresser || []).forEach(function(x){
+          var p = x.representasjonspunkt || {};
+          var lat = tall(p.lat), lon = tall(p.lon);
+          if(isFinite(lat) && isFinite(lon)){
+            liste.push({navn:x.adressetekst || q,
+                        under:[x.postnummer, x.poststed].filter(Boolean).join(' '),
+                        lat:lat, lon:lon});
+          }
+        });
+      }).catch(function(){ sokFeil++; });
+    var b = fetch('https://ws.geonorge.no/stedsnavn/v1/navn?sok=' + encodeURIComponent(q) +
+                  '&treffPerSide=8&utkoordsys=4258')
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        (d.navn || []).forEach(function(x){
+          var p = x.representasjonspunkt || {};
+          var lat = tall(p.nord !== undefined ? p.nord : p.lat);
+          var lon = tall(p['øst'] !== undefined ? p['øst'] : p.lon);
+          if(isFinite(lat) && isFinite(lon)){
+            liste.push({navn:x.skrivemåte || x.stedsnavn || q,
+                        under:[x.navneobjekttype, x.kommuner && x.kommuner[0] && x.kommuner[0].kommunenavn]
+                              .filter(Boolean).join(' · '),
+                        lat:lat, lon:lon});
+          }
+        });
+      }).catch(function(){ sokFeil++; });
+
+    Promise.all([a, b]).then(function(){
+      melding.style.display = 'none';
+      if(!liste.length){
+        si(sokFeil ? 'Fikk ikke svar fra søketjenesten. Prøv igjen, eller sjekk nettet.'
+                   : 'Fant ingenting på det søket.', 7000);
+        return;
+      }
+      visTreff(liste);
+    });
+  }
+  document.getElementById('sokknapp').addEventListener('click', sok);
+  document.getElementById('sok').addEventListener('keydown', function(e){
+    if(e.key === 'Enter'){ e.preventDefault(); this.blur(); sok(); }
+  });
+
+  document.getElementById('posisjon').addEventListener('click', function(){
+    if(!navigator.geolocation){ si('Enheten gir ikke posisjon.'); return; }
+    si('Finner posisjon …', 8000);
+    navigator.geolocation.getCurrentPosition(function(pos){
+      melding.style.display = 'none';
+      settModus('kart');
+      kart.setView([pos.coords.latitude, pos.coords.longitude], 18);
+    }, function(){
+      si('Fikk ikke posisjon. Sjekk at posisjon er tillatt for nettleseren.', 7000);
+    }, {enableHighAccuracy:true, timeout:12000});
+  });
+
+  document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
+  setTimeout(storrelse, 100);
+})();
+</script>
