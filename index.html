@@ -73,6 +73,7 @@
   <button id="modus" aria-pressed="false">Tegn</button>
   <button id="siktmodus" aria-pressed="false">Siktlinje</button>
   <button id="bilmodus" aria-pressed="false">Kjøretøy</button>
+  <button id="sporing" aria-pressed="false">Sporing</button>
   <span class="velg" style="width:190px"><select id="biltype" aria-label="Kjøretøytype">
     <option value="personbil">Personbil</option>
     <option value="lastebil">Lastebil 10 m</option>
@@ -133,14 +134,15 @@
   /* ---------- tegning, forankret i kartet ---------- */
   var cv = document.getElementById('tegn'), ctx = cv.getContext('2d');
   var strokes = [], current = null, tegnemodus = false, bilmodus = false, siktmodus = false;
+  var sporing = false;
   var biler = [], valgtBil = -1, bilDrag = null;
 
   var BILER = {
     personbil:{navn:'Personbil',   br:1.80, bil:5.00},
     lastebil: {navn:'Lastebil',    br:2.60, bil:10.00},
     buss:     {navn:'Buss',        br:2.50, bil:13.00},
-    semi:     {navn:'Semitrailer', br:2.60, bil:5.70, krok:1.00, drag:0, henger:13.80, fram:1.50},
-    vogntog:  {navn:'Vogntog',     br:2.60, bil:10.00, krok:0.50, drag:2.50, henger:7.00}
+    semi:     {navn:'Semitrailer', br:2.60, bil:5.70, krok:1.00, drag:0, henger:13.80, fram:1.50, aksel:8.00},
+    vogntog:  {navn:'Vogntog',     br:2.60, bil:10.00, krok:0.50, drag:2.50, henger:7.00, aksel:5.00}
   };
   // rekkefølgen kjøretøy settes inn i gir hver sin farge
   var PALETT = ['#1E5AA8', '#C1272D', '#2E7D32', '#D97A0B', '#6A3D9A', '#0F7C74'];
@@ -408,7 +410,56 @@
         if(Math.abs(ny) < 3) ny = 0;
         if(f.dragPx) b.led2 = ny; else b.led = ny;
       } else {
-        b.ll = kart.containerPointToLatLng([p.x - bilDrag.dx, p.y - bilDrag.dy]);
+        var nyC = {x:p.x - bilDrag.dx, y:p.y - bilDrag.dy};
+        if(sporing && f.hengerPx){
+          var sx = nyC.x - f.c.x, sy = nyC.y - f.c.y;
+          if(Math.hypot(sx, sy) > 0.8){
+            // rygger vi? avgjøres av bevegelsen langs bilens egen akse
+            var lengde = Math.hypot(sx, sy);
+            var bakover = (sx * f.dF.x + sy * f.dF.y) < -0.2 * lengde;
+            var onsket = Math.atan2(sy, sx) + (bakover ? Math.PI : 0);
+            // bilen kan ikke snu momentant: minste svingradius begrenser utslaget
+            var maksSving = lengde / (7.0 * f.s);
+            var avvik = onsket - f.aF;
+            while(avvik > Math.PI) avvik -= 2 * Math.PI;
+            while(avvik < -Math.PI) avvik += 2 * Math.PI;
+            var nyHdg = f.aF + Math.max(-maksSving, Math.min(maksSving, avvik));
+            var tilK = f.bilPx / 2 - (f.spec.krok || 0) * f.s;
+            var P1 = f.P;
+            var P2 = {x:nyC.x - Math.cos(nyHdg) * tilK, y:nyC.y - Math.sin(nyHdg) * tilK};
+            var akselPx = (f.spec.aksel || 6) * f.s;
+            // hvert ledd: akselen kan ikke skli sidelengs, så vinkelen endres av
+            // den delen av trekkpunktets bevegelse som står vinkelrett på enheten
+            var ledd = f.dragPx
+              ? [{L:f.dragPx, v:f.aD}, {L:akselPx, v:f.aT}]
+              : [{L:akselPx, v:f.aT}];
+            var fraGml = P1, fraNy = P2;
+            ledd.forEach(function(e){
+              if(e.L < 1) { e.ny = e.v; return; }
+              var nx = -Math.sin(e.v), ny2 = Math.cos(e.v);
+              var d = ((fraNy.x - fraGml.x) * nx + (fraNy.y - fraGml.y) * ny2) / e.L;
+              e.ny = e.v + d;
+              var gml = {x:fraGml.x - Math.cos(e.v) * e.L, y:fraGml.y - Math.sin(e.v) * e.L};
+              var nyy = {x:fraNy.x - Math.cos(e.ny) * e.L, y:fraNy.y - Math.sin(e.ny) * e.L};
+              fraGml = gml; fraNy = nyy;
+            });
+            function grad(r){ return r * 180 / Math.PI; }
+            function klem(v){
+              while(v > 180) v -= 360;
+              while(v < -180) v += 360;
+              return Math.max(-80, Math.min(80, v));
+            }
+            var hG = grad(nyHdg);
+            if(f.dragPx){
+              b.led = klem(grad(ledd[0].ny) - hG);
+              b.led2 = klem(grad(ledd[1].ny) - grad(ledd[0].ny));
+            } else {
+              b.led = klem(grad(ledd[0].ny) - hG);
+            }
+            b.hdg = hG;
+          }
+        }
+        b.ll = kart.containerPointToLatLng([nyC.x, nyC.y]);
       }
       tegnOpp();
       return;
@@ -447,6 +498,15 @@
   }
   modus.addEventListener('click', function(){ settModus(tegnemodus ? 'kart' : 'tegn'); });
   siktknapp.addEventListener('click', function(){ settModus(siktmodus ? 'kart' : 'sikt'); });
+  var sporknapp = document.getElementById('sporing');
+  sporknapp.addEventListener('click', function(){
+    sporing = !sporing;
+    sporknapp.setAttribute('aria-pressed', sporing);
+    if(sporing){
+      if(!bilmodus) settModus('bil');
+      si('Dra trekkbilen framover, så følger hengeren etter i sporet.', 6000);
+    }
+  });
   bilknapp.addEventListener('click', function(){ settModus(bilmodus ? 'kart' : 'bil'); });
 
   document.getElementById('settinn').addEventListener('click', function(){
