@@ -657,6 +657,24 @@
   });
 
   document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
+
+  // start der brukeren faktisk er, hvis posisjon er tillatt
+  var startLaast = false;
+  kart.on('dragstart', function(){ startLaast = true; });
+  document.getElementById('sokknapp').addEventListener('click', function(){ startLaast = true; });
+  document.getElementById('posisjon').addEventListener('click', function(){ startLaast = true; });
+  if(navigator.geolocation){
+    si('Finner posisjonen din \u2026', 9000);
+    navigator.geolocation.getCurrentPosition(function(pos){
+      if(startLaast) return;
+      melding.style.display = 'none';
+      kart.setView([pos.coords.latitude, pos.coords.longitude], 17);
+    }, function(){
+      si('Fant ikke posisjon \u2013 kartet starter i standardvisning. ' +
+         'S\u00f8k opp stedet, eller sl\u00e5 p\u00e5 posisjon for Safari.', 7000);
+    }, {enableHighAccuracy:true, timeout:10000, maximumAge:60000});
+  }
+
   setTimeout(storrelse, 100);
 })();
 </script>
